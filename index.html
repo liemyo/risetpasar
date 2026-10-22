@@ -329,18 +329,26 @@ async function supplierOSM(kw, reg, kota, depth, run){
     ROWS.push({ name, addr, phone, wa: waLink(phone), rating: null, rcount: 0, maps: gmapsSearch(name, addr, lat, lon) });
   };
   let osmFail = 0;
+  // selain kata kunci utuh, cari juga kata intinya ("Toko Besi" → "besi") supaya toko dengan nama lain ikut muncul
+  const core = kw.replace(/\b(toko|supplier|suplier|distributor|agen|jual|grosir|pt|cv|ud)\b\.?/gi, ' ').replace(/\s+/g, ' ').trim();
+  const terms = core && core.toLowerCase() !== kw.toLowerCase() ? [kw, core] : [kw];
+  const SKIP = new Set(['highway', 'boundary', 'place', 'railway', 'waterway', 'natural', 'landuse']);
   for (let i = 0; i < provs.length; i++){
     if (run !== RUN) return;
     const p = provs[i], box = PROV[p];
-    try {
-      const res = await nominatim(kw, kota, box);
-      for (const x of res){
-        const t = x.extratags || {};
-        const name = x.name || x.display_name.split(',')[0];
-        add(name, x.display_name.replace(/^[^,]+,\s*/, ''), normPhone(t.phone || t['contact:phone'] || t['contact:whatsapp'] || t.mobile),
-          +x.lat, +x.lon, x.osm_type + x.osm_id);
-      }
-    } catch (e){ addNote(`⚠️ ${esc(p)}: ${esc(e.message)}`); }
+    for (const term of terms){
+      try {
+        const res = await nominatim(term, kota, box);
+        for (const x of res){
+          if (SKIP.has(x.category) || x.type === 'residential') continue;
+          const t = x.extratags || {};
+          const name = x.name || x.display_name.split(',')[0];
+          add(name, x.display_name.replace(/^[^,]+,\s*/, ''), normPhone(t.phone || t['contact:phone'] || t['contact:whatsapp'] || t.mobile),
+            +x.lat, +x.lon, x.osm_type + x.osm_id);
+        }
+      } catch (e){ addNote(`⚠️ ${esc(p)}: ${esc(e.message)}`); }
+      if (terms.length > 1) await sleep(1100);
+    }
     if (depth > 1 && !kota){
       try {
         const els = await overpass(kw, box);
